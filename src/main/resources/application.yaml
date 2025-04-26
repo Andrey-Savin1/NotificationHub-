@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: NotificationHub
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/notification
+    username: postgres
+    password: 1234
+    driver-class-name: org.postgresql.Driver
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  kafka:
+    bootstrap-servers: localhost:9093
+    consumer:
+      group-id: notification
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: io.confluent.kafka.serializers.KafkaAvroDeserializer
+      properties:
+        schema.registry.url: http://localhost:8081
+        specific.avro.reader: true  # Чтобы получать POJO вместо GenericRecord
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: io.confluent.kafka.serializers.KafkaAvroSerializer
+      properties:
+        schema.registry.url: http://localhost:8081
+
+  mail:
+    host: localhost
+    port: 3025  # Порт SMTP GreenMail
+    username: login
+    password: 1234
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: false
+
+logging:
+  level:
+    ru.savin.notificationhub: debug
+
