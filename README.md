@@ -16,6 +16,14 @@ NotificationHub - это микросервис, который отвечает
     - Если во входящем сообщении нет userId, считаем что это новое уведомление
     - Если во входящем сообщении есть userId, выполняем поиск и обновление уведомления
 
+# Инструкция по запуску:
+ - Запуск инфраструктуры: docker-compose up
+ - Доступ к сервисам: 
+   - Kafka UI: http://localhost:8082   
+   - Schema Registry: http://localhost:8081
+   - Внутри Docker: kafka:9092
+   - Снаружи Docker: localhost:9093
+
 # Технологический стек
    - Язык: Java 21
    - Фреймворки: Spring Boot 3.2.4, Spring Web MVC, Spring Data JPA, Spring Kafka, Spring Mail
