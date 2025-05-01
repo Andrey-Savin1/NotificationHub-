@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -30,6 +31,7 @@ import static ru.savin.notificationhub.TestContainersConfig.postgres;
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 class NotificationRestControllerV1Test {
 
     @Autowired
@@ -61,13 +63,13 @@ class NotificationRestControllerV1Test {
 
         ResponseEntity<?> response = restTemplate.getForEntity("/api/v1/notification/3f78ad09-d59e-4aa9-9f13-62fcf1aae868", String.class);
 
-        assertEquals(200, response.getStatusCode().value());
         String responseBody = (String) response.getBody();
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
 
         List<Notification> notifications = objectMapper.readValue(responseBody, new TypeReference<>() { });
 
+        assertEquals(200, response.getStatusCode().value());
         assertEquals(1, notifications.size());
         assertEquals("3f78ad09-d59e-4aa9-9f13-62fcf1aae868", (notifications.get(0)).getUserUid());
     }

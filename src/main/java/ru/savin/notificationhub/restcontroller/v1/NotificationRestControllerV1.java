@@ -1,31 +1,25 @@
 package ru.savin.notificationhub.restcontroller.v1;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-import ru.savin.notificationhub.repository.NotificationRepository;
-
-import java.util.Map;
+import org.springframework.web.bind.annotation.*;
+import ru.savin.notificationhub.dto.NotificationDto;
+import ru.savin.notificationhub.service.NotificationService;
 
 @RestController
 @RequestMapping(value = "/api/v1/notification")
 @RequiredArgsConstructor
 public class NotificationRestControllerV1 {
 
-    private final NotificationRepository notificationRepository;
+    private final NotificationService notificationService;
 
 
     @GetMapping("/{id}")
-    public ResponseEntity<?> getAllNotificationByUserId(@PathVariable String id) {
-        if (!notificationRepository.existsByUserUid(id)) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                    Map.of("error", "User not found",
-                            "userId", id));
-        }
-        return ResponseEntity.ok(notificationRepository.findAllByUserUid(id));
+    public ResponseEntity<Page<NotificationDto>> getAllNotificationByUserId(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return ResponseEntity.ok(notificationService.getAllNotificationByUserUid(id, page, size));
     }
 }

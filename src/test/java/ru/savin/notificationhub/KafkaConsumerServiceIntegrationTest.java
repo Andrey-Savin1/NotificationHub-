@@ -15,37 +15,42 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import ru.savin.notificationhub.dto.CreateNotificationData;
-import ru.savin.notificationhub.handler.NotificationHandler;
+import ru.savin.notificationhub.service.NotificationService;
 import ru.savin.notificationhub.repository.NotificationRepository;
 
 import java.time.Duration;
-import java.util.Collections;
 import java.util.concurrent.ExecutionException;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static ru.savin.notificationhub.TestContainersConfig.*;
+import static ru.savin.notificationhub.util.KafkaTestUtils.createConsumer;
+import static ru.savin.notificationhub.util.KafkaTestUtils.createProducer;
 
 @SpringBootTest
 @ActiveProfiles("test")
 @Testcontainers
 @RequiredArgsConstructor(onConstructor_ = {@Autowired})
 @Slf4j
+@DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 public class KafkaConsumerServiceIntegrationTest {
 
+    @Value("${themeOfEmail}")
+    private String themeOfEmail;
     private final GreenMail greenMail;
     private final JavaMailSender mailSender;
     private final NotificationRepository notificationRepository;
-    private final NotificationHandler notificationHandler;
+    private final NotificationService notificationService;
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -56,7 +61,7 @@ public class KafkaConsumerServiceIntegrationTest {
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("spring.flyway.locations", () -> "classpath:/db/migration-test");
 
-        registry.add("spring.kafka.bootstrap-servers", TestContainersConfig.kafka::getBootstrapServers);
+        registry.add("spring.kafka.bootstrap-servers", TestContainersConfig.kafkaTest::getBootstrapServers);
         registry.add("kafka.consumer.enabled", () -> "true");
         registry.add("spring.kafka.producer.properties.schema.registry.url", () ->
                 "http://%s:%d".formatted(schemaRegistry.getHost(), schemaRegistry.getMappedPort(8081)));
@@ -86,20 +91,19 @@ public class KafkaConsumerServiceIntegrationTest {
 
         // 1. Подготовка тестового сообщения
         CreateNotificationData testData = CreateNotificationData.newBuilder()
-                .setUserId("")
+                .setUserId("1")
                 .setEmail("test@example.com")
                 .setMessage("Test message")
+                .setActionType("CREATE")
                 .build();
 
         try (KafkaProducer<String, CreateNotificationData> producer = createProducer();
-             KafkaConsumer<String, CreateNotificationData> consumer = createConsumer()) {
+             KafkaConsumer<String, CreateNotificationData> consumer = createConsumer("test")) {
 
             // 2. Отправка сообщения в Kafka
             var future = producer.send(new ProducerRecord<>("test", "key", testData));
             RecordMetadata metadata = future.get();
             log.debug("Message sent to topic: {}, partition: {}, offset: {}", metadata.topic(), metadata.partition(), metadata.offset());
-
-            consumer.subscribe(Collections.singletonList("test"));
 
             // 3. Получение сообщения
             ConsumerRecords<String, CreateNotificationData> records = consumer.poll(Duration.ofSeconds(1));
@@ -109,17 +113,17 @@ public class KafkaConsumerServiceIntegrationTest {
 
             var data = records.iterator().next().value();
             // 4. Сохранили в базу
-            var savedData = notificationHandler.createNewNotification(data);
+            var savedData = notificationService.createNewNotification(data);
             // 5. Получили из базы
             var getNotification = notificationRepository.findByUserUid(savedData.getUserUid())
                     .orElseThrow(() -> new RuntimeException("Notification not found"));
 
+            // 7. Отправляем email
+            mailSender.send(sendTestEmail(data.getEmail(), themeOfEmail, "Test message"));
+
             assertEquals(1, records.count());
             // 6. Проверяем отправленное сообщение в кафку и сообщение которое сохранили в базу после получения из кафки
             assertEquals(testData.getMessage(), getNotification.getMessage());
-
-            // 7. Отправляем email
-            mailSender.send(sendTestEmail(data.getEmail(), "Notification from Kafka", "Test message"));
 
             await().untilAsserted(() -> {
                 // 8. Проверяем, что письмо получено GreenMail
@@ -141,13 +145,14 @@ public class KafkaConsumerServiceIntegrationTest {
 
         // 1. Подготовка тестового сообщения
         CreateNotificationData testData = CreateNotificationData.newBuilder()
-                .setUserId("")
+                .setUserId("1")
                 .setEmail("test@example.com")
                 .setMessage("Test message")
+                .setActionType("UPDATE")
                 .build();
 
         // 2. Сохранили в базу
-        var saveNotification = notificationHandler.createNewNotification(testData);
+        var saveNotification = notificationService.createNewNotification(testData);
         // 3. Получили из базы
         var getNotification = notificationRepository.findByUserUid(saveNotification.getUserUid());
 
@@ -157,34 +162,34 @@ public class KafkaConsumerServiceIntegrationTest {
                         .setUserId(notification.getUserUid())
                         .setEmail("test@example.com")
                         .setMessage("Update message")
+                        .setActionType("UPDATE")
                         .build())
                 .orElseThrow(() -> new RuntimeException("Notification not found"));
 
-        try (KafkaProducer<String, CreateNotificationData> producer = createProducer();
-             KafkaConsumer<String, CreateNotificationData> consumer = createConsumer()) {
+        try (var producer = createProducer();
+             var  consumer = createConsumer("test")) {
 
-            // 2. Отправка сообщения в Kafka
+            // 5. Отправка сообщения в Kafka
             var future = producer.send(new ProducerRecord<>("test", "key", updateData));
             RecordMetadata metadata = future.get();
             log.debug("Message sent to topic: {}, partition: {}, offset: {}", metadata.topic(), metadata.partition(), metadata.offset());
 
-            consumer.subscribe(Collections.singletonList("test"));
-
-            // 3. Получение сообщения
+            // 6. Получение сообщения
             ConsumerRecords<String, CreateNotificationData> records = consumer.poll(Duration.ofSeconds(1));
             if (records.isEmpty()) {
                 throw new RuntimeException("No messages received from Kafka");
             }
-            assertEquals(1, records.count());
 
             var data = records.iterator().next().value();
-            // 4. Сохранили в базу
-            var savedNotification = notificationHandler.updateNewNotification(data);
-            // 5. Получили из базы
+            // 7. Сохранили в базу
+            var savedNotification = notificationService.updateNewNotification(data);
+            // 8. Получили из базы
             var receivedNotification = notificationRepository.findByUserUid(savedNotification.getUserUid())
                     .orElseThrow(() -> new RuntimeException("Notification not found"));
 
-            // 6. Проверяем отправленное сообщение в кафку и сообщение которое сохранили в базу после получения из кафки
+
+            assertEquals(1, records.count());
+            // 9. Проверяем отправленное сообщение в кафку и сообщение которое сохранили в базу после получения из кафки
             assertEquals(updateData.getMessage(), receivedNotification.getMessage());
 
         } catch (ExecutionException | InterruptedException e) {

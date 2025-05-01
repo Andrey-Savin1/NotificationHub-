@@ -41,3 +41,4 @@ logging:
   level:
     ru.savin.notificationhub: debug
 
+themeOfEmail: "Notification from Kafka"
